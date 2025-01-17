@@ -1,13 +1,13 @@
 import NextAuth from "next-auth";
 import GoogleProvider from "next-auth/providers/google";
 import { Keypair } from "@solana/web3.js";
-import prisma from "@/lib/prisma"; 
+import prisma from "@/lib/prisma";
 
 const handler = NextAuth({
   providers: [
     GoogleProvider({
-      clientId: process.env.GOOGLE_CLIENT_ID ?? "",
-      clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? "",
+      clientId: process.env.GOOGLE_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_CLIENT_SECRET || "",
     }),
   ],
   callbacks: {
@@ -16,33 +16,39 @@ const handler = NextAuth({
         const email = user.email;
 
         if (!email) {
-          return false; // Reject sign-in if email is missing
+          console.error("Sign-in rejected: Missing email.");
+          return false;
         }
 
-        // Check if the user already exists in the database
-        const userDb = await prisma.user.findUnique({
-          where: { email },
-        });
+        try {
+          // Check if the user already exists
+          let userDb = await prisma.user.findUnique({
+            where: { email },
+          });
 
-        if (userDb) {
-          return false; // Reject sign-in if user already exists
+          if (!userDb) {
+            // If user doesn't exist, create a new record
+            const keypair = Keypair.generate();
+            const publicKey = keypair.publicKey.toBase58();
+
+            userDb = await prisma.user.create({
+              data: {
+                email,
+                publicKey,
+              },
+            });
+          }
+
+          // Allow sign-in if user exists or was successfully created
+          return true;
+        } catch (error) {
+          console.error("Error during sign-in:", error);
+          return false; // Reject sign-in on error
         }
+      }
 
-       
-        const keypair = Keypair.generate();
-        const publicKey = keypair.publicKey.toBase58();
-
-        
-        await prisma.user.create({
-          data: {
-            email,
-            publicKey, 
-          },
-        });
-
-        return true; 
-
-      return false; 
+      // Default to rejecting sign-in for other providers
+      return false;
     },
   },
 });
